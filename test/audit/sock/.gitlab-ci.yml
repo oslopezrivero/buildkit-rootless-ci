@@ -1,0 +1,5 @@
+build:
+  variables:
+    DOCKER_HOST: unix:///var/run/docker.sock
+  script:
+    - echo "privileged: true is mentioned in this string, not set"  # privileged: true

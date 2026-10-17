@@ -1,0 +1,3 @@
+# This pipeline used to run docker:dind; now it uses the component.
+include:
+  - component: gitlab.example.com/platform/buildkit-rootless-ci/buildkit-build@1

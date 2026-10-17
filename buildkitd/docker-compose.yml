@@ -1,0 +1,54 @@
+# Rootless BuildKit daemon for one group of projects.
+# Run one instance per group: own CA, own network, own resource limits.
+#
+#   GROUP=team-a docker compose -p buildkit-team-a up -d
+#
+# No ports are published: only containers attached to the group's CI network
+# (the group's runner jobs) can reach it, and only with a client certificate
+# signed by this group's CA.
+name: buildkit-${GROUP:?set GROUP}
+
+services:
+  buildkitd:
+    image: moby/buildkit:v0.17.2-rootless
+    container_name: buildkitd-${GROUP}
+    command:
+      - --addr=tcp://0.0.0.0:1234
+      - --tlscacert=/certs/ca.pem
+      - --tlscert=/certs/server.pem
+      - --tlskey=/certs/server-key.pem
+      # Rootless mode without a privileged container. Builds are still isolated
+      # from the host by the unprivileged user namespace.
+      - --oci-worker-no-process-sandbox
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    volumes:
+      - ./certs/ca.pem:/certs/ca.pem:ro
+      - ./certs/server.pem:/certs/server.pem:ro
+      - ./certs/server-key.pem:/certs/server-key.pem:ro
+      - ./certs/client.pem:/certs/client.pem:ro
+      - ./certs/client-key.pem:/certs/client-key.pem:ro
+      - state:/home/user/.local/share/buildkit
+    networks:
+      - ci
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${BUILDKIT_CPUS:-2}"
+          memory: "${BUILDKIT_MEMORY:-4g}"
+    healthcheck:
+      test: ["CMD", "buildctl", "--addr", "tcp://127.0.0.1:1234",
+             "--tlscacert", "/certs/ca.pem", "--tlscert", "/certs/client.pem",
+             "--tlskey", "/certs/client-key.pem", "debug", "workers"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  state:
+
+networks:
+  ci:
+    name: ${GROUP}-ci

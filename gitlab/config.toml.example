@@ -1,0 +1,20 @@
+# GitLab Runner (docker executor) for one group, paired with that group's BuildKit daemon.
+# Only the relevant section is shown.
+
+[[runners]]
+  name = "team-a"
+  url = "https://gitlab.example.com"
+  executor = "docker"
+  # The daemon address can also live in a group CI variable instead.
+  environment = ["BUILDKIT_HOST=tcp://buildkitd-team-a:1234"]
+  [runners.docker]
+    image = "alpine:3.20"
+    # The whole point: jobs are not privileged...
+    privileged = false
+    # ...and do not get the host's Docker socket. Mounting /var/run/docker.sock
+    # gives every job root-equivalent control of the host.
+    volumes = ["/cache"]
+    # Join the group's CI network so jobs can reach buildkitd-team-a by name.
+    # Side effect: GitLab "services:" aliases do not resolve on a fixed network,
+    # which is one more reason docker:dind stops working here (by design).
+    network_mode = "team-a-ci"

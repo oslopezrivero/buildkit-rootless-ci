@@ -1,0 +1,65 @@
+# GitLab CI/CD component: build and push an image with a remote rootless BuildKit over mTLS.
+# The job itself is unprivileged and never touches a Docker daemon.
+#
+# Group-level CI/CD variables (type "File" for the three certificates, not protected
+# if feature branches must build):
+#   BUILDKIT_HOST          tcp://buildkitd-<group>:1234
+#   BUILDKIT_CA_PEM        ca.pem from gen-certs.sh
+#   BUILDKIT_CLIENT_CERT   client.pem
+#   BUILDKIT_CLIENT_KEY    client-key.pem
+#
+# Usage in a project's .gitlab-ci.yml:
+#   include:
+#     - component: $CI_SERVER_FQDN/<group>/<this-project>/buildkit-build@<version>
+#       inputs:
+#         dockerfile: docker/app.Dockerfile
+spec:
+  inputs:
+    stage:
+      default: build
+    context:
+      default: .
+      description: Build context directory.
+    dockerfile:
+      default: Dockerfile
+      description: Path to the Dockerfile, relative to the repository root.
+    image:
+      default: $CI_REGISTRY_IMAGE
+      description: Image repository to push to.
+    tag:
+      default: $CI_COMMIT_SHORT_SHA
+    buildkit_image:
+      default: moby/buildkit:v0.17.2
+---
+buildkit-build:
+  stage: $[[ inputs.stage ]]
+  image:
+    name: $[[ inputs.buildkit_image ]]
+    entrypoint: [""]
+  variables:
+    BUILD_CONTEXT: $[[ inputs.context ]]
+    BUILD_DOCKERFILE: $[[ inputs.dockerfile ]]
+    BUILD_IMAGE: $[[ inputs.image ]]
+    BUILD_TAG: $[[ inputs.tag ]]
+  script:
+    # Registry credentials for buildctl (it reads the Docker config format).
+    - mkdir -p ~/.docker
+    - >
+      printf '{"auths":{"%s":{"auth":"%s"}}}'
+      "$CI_REGISTRY"
+      "$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')"
+      > ~/.docker/config.json
+    - >
+      buildctl
+      --addr "$BUILDKIT_HOST"
+      --tlscacert "$BUILDKIT_CA_PEM"
+      --tlscert "$BUILDKIT_CLIENT_CERT"
+      --tlskey "$BUILDKIT_CLIENT_KEY"
+      build
+      --frontend dockerfile.v0
+      --local context="$BUILD_CONTEXT"
+      --local dockerfile="$(dirname "$BUILD_DOCKERFILE")"
+      --opt filename="$(basename "$BUILD_DOCKERFILE")"
+      --import-cache type=registry,ref="$BUILD_IMAGE:buildcache"
+      --export-cache type=registry,ref="$BUILD_IMAGE:buildcache",mode=max
+      --output type=image,name="$BUILD_IMAGE:$BUILD_TAG",push=true

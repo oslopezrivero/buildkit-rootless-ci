@@ -1,0 +1,6 @@
+build:
+  image: docker:27
+  services:
+    - docker:27.5.1-dind
+  script:
+    - docker build -t app .
